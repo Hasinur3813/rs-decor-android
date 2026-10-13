@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">RS Decor</string>
+    <string name="app_name_bangla">আর এস ৩ডি ডেকর</string>
+    <string name="app_full_title">আর এস ৩ডি ওয়ালপেপার অ্যান্ড ফ্লোর</string>
+    <string name="app_subtitle">প্রিমিয়াম হোম ডেকর — লাক্সারি ইন্টেরিয়র শোকেস</string>
+    <string name="phone_number">+8801976600300</string>
+    <string name="phone_display">০১৯৭৬-৬০০৩০০</string>
+    <string name="whatsapp_url">https://wa.me/8801976600300</string>
+    <string name="call_now">কল করুন</string>
+    <string name="whatsapp_inquiry">হোয়াটসঅ্যাপ</string>
+    <string name="search_placeholder">ডিজাইন খুঁজুন (নাম বা রুম)...</string>
+    <string name="all_categories">সবগুলো</string>
+    <string name="all_subcategories">সব রুম</string>
+</resources>

@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Main showcase categories: 3D Wallpaper, 3D Ceiling Paper, 3D Epoxy Floor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the category" },
+        "name": { "type": "string", "description": "Category display name in Bangla" },
+        "nameEn": { "type": "string", "description": "Category display name in English" },
+        "slug": { "type": "string", "description": "Category slug" },
+        "imageUrl": { "type": "string", "description": "Showcase banner/preview image" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "slug", "imageUrl"]
+    },
+    "Design": {
+      "title": "Design",
+      "description": "Minimal design showcase item containing only name, category, and subcategory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the design" },
+        "name": { "type": "string", "description": "Design name" },
+        "category": { "type": "string", "description": "Main category name" },
+        "categorySlug": { "type": "string", "description": "Main category identifier slug" },
+        "subcategory": { "type": "string", "description": "Room subcategory (Bedroom, Living Room, etc.)" },
+        "subcategorySlug": { "type": "string", "description": "Room subcategory slug" },
+        "imageUrl": { "type": "string", "description": "Showcase high-resolution photo" },
+        "imagePublicId": { "type": "string", "description": "Cloudinary public id for admin-side deletion" },
+        "isActive": { "type": "boolean", "description": "Hidden from the app when false" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "category", "subcategory", "imageUrl"]
+    },
+    "Subcategory": {
+      "title": "Subcategory",
+      "description": "Room filter managed from the admin panel; app falls back to bundled rooms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the room" },
+        "name": { "type": "string", "description": "Room display name in Bangla" },
+        "nameEn": { "type": "string", "description": "Room display name in English" },
+        "slug": { "type": "string", "description": "Room filter slug" },
+        "order": { "type": "number", "description": "Sort order in the filter row" },
+        "isActive": { "type": "boolean", "description": "Hidden from the app when false" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "slug"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Contact numbers + home hero banner (single doc settings/app)",
+      "type": "object",
+      "properties": {
+        "phoneNumber": { "type": "string", "description": "Dial intent number, e.g. +8801976600300" },
+        "phoneDisplay": { "type": "string", "description": "Bangla display number" },
+        "whatsappNumber": { "type": "string", "description": "Digits with country code, e.g. 8801976600300" },
+        "heroTitle": { "type": "string", "description": "Hero banner title" },
+        "heroSubtitle": { "type": "string", "description": "Hero banner subtitle" },
+        "heroDescription": { "type": "string", "description": "Hero banner description" },
+        "heroImageUrl": { "type": "string", "description": "Cloudinary hero image; blank uses bundled art" },
+        "appTitle": { "type": "string", "description": "Header app title next to the logo" },
+        "appSubtitle": { "type": "string", "description": "Header subtitle under the app title" },
+        "logoImageUrl": { "type": "string", "description": "Cloudinary logo image; blank uses bundled logo" }
+      },
+      "required": ["phoneNumber", "whatsappNumber"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Main product categories"
+    },
+    "/designs/{designId}": {
+      "schema": "Design",
+      "description": "Showcase designs filtered by category and subcategory"
+    },
+    "/subcategories/{subcategoryId}": {
+      "schema": "Subcategory",
+      "description": "Room filters managed from the admin panel"
+    },
+    "/settings/app": {
+      "schema": "AppSettings",
+      "description": "Contact numbers + home hero banner"
+    }
+  }
+}

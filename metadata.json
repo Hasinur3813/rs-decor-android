@@ -1,0 +1,7 @@
+{
+  "name": "RS Decor",
+  "description": "Premium 3D wallpaper, 8D crystal prints, and 3D epoxy flooring catalog for home decor in Bangladesh.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
