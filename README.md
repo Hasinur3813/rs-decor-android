@@ -64,19 +64,22 @@ designs maintain their search tokens automatically.
 Create an upload key (the configured alias is `upload`) and keep the keystore
 and passwords in a secure backup. Enroll the app in Play App Signing when
 creating its Play Console listing; the upload key is used to upload bundles.
-The release build reads these environment variables:
-
-- `KEYSTORE_PATH`: path to the upload `.jks` file. If omitted, Gradle looks for
-  `my-upload-key.jks` in this project directory.
-- `STORE_PASSWORD`: keystore password.
-- `KEY_PASSWORD`: upload-key password.
-
-Set them in your local environment or CI secret store, never in source control.
-Build the signed Play bundle with:
+By default, Gradle looks for `rs-decor-upload.jks` in your Windows user folder
+(`%USERPROFILE%`). You can override its location with:
 
 ```powershell
-.\gradlew.bat :app:bundleRelease
+$env:KEYSTORE_PATH = "$env:USERPROFILE\rs-decor-upload.jks"
 ```
+
+Build a signed bundle from PowerShell in this project directory with:
+
+```powershell
+.\build-release.ps1
+```
+
+The script prompts for the keystore and key passwords without displaying them,
+passes them to Gradle for this build only, and clears them afterward. Do not
+save passwords in project files or commit the keystore.
 
 The bundle is written to
 `app/build/outputs/bundle/release/app-release.aab`. Verify the signing
