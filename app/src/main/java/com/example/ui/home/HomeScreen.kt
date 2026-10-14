@@ -82,6 +82,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -125,7 +128,6 @@ fun HomeScreen(
     var searchDialogOpen by remember { mutableStateOf(false) }
     fun applyFilters(categorySlug: String, subcategorySlug: String) {
         viewModel.selectFilters(categorySlug, subcategorySlug)
-        coroutineScope.launch { gridState.animateScrollToItem(0) }
     }
 
     // 1. Rock-solid Infinite Scroll detection using snapshotFlow
@@ -523,7 +525,9 @@ fun HomeScreen(
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectableGroup()
                     ) {
                         FilterPill(
                             title = "সবগুলো",
@@ -568,6 +572,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(10.dp)
+                                .selectableGroup()
                         ) {
                             state.subcategories.forEach { sub ->
                                 FilterPill(
@@ -1478,7 +1483,11 @@ fun FilterPill(
             if (isSelected) LuxuryGoldBright else DarkCardBorder
         ),
         modifier = Modifier
-            .clickable { onClick() }
+            .selectable(
+                selected = isSelected,
+                role = Role.RadioButton,
+                onClick = onClick
+            )
             .testTag("filter_pill_${title.replace(" ", "_")}")
     ) {
         Text(
