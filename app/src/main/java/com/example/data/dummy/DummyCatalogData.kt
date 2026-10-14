@@ -6,8 +6,7 @@ package com.example.data.dummy
  * This app shows REAL Firestore content exclusively: there are no sample
  * designs or categories anywhere. The room list below is used only when the
  * `subcategories` collection is empty or unreachable, so the filter UI never
- * renders blank. First launch seeds these rooms into Firestore via
- * `CatalogRepository.seedSubcategories()` (additive — admin edits win).
+ * renders blank. Admin-managed room data is published through the admin panel.
  */
 object DummyCatalogData {
 

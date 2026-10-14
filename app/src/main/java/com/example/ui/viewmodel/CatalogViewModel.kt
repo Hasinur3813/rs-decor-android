@@ -146,21 +146,6 @@ class CatalogViewModel(
     }
 
     private fun loadData() {
-        // Make sure first-run remote defaults (rooms + settings) exist.
-        // A failure here is non-fatal (streams carry their own fallbacks),
-        // but the user gets a toast when online so problems stay visible.
-        viewModelScope.launch {
-            val result = repository.ensureRemoteDefaults()
-            result.onFailure { e ->
-                android.util.Log.w("CatalogViewModel", "Remote defaults check failed", e)
-                if (_uiState.value.isOnline) {
-                    _uiState.update {
-                        it.copy(toastMessage = "⚠️ সার্ভারের সাথে সংযোগ করা যায়নি — আবার চেষ্টা করুন।")
-                    }
-                }
-            }
-        }
-
         startContentObservers()
         loadFirstPage()
     }

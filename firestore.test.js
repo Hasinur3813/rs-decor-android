@@ -36,7 +36,7 @@ beforeEach(async () => {
   }
 });
 
-test("Public user (no auth): can read categories and designs", async () => {
+test("Public user (no auth): can read categories and designs but cannot write", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await context.firestore().collection("categories").doc("cat1").set({
       id: "cat1",
@@ -56,9 +56,22 @@ test("Public user (no auth): can read categories and designs", async () => {
   const publicDb = testEnv.unauthenticatedContext().firestore();
   await assertSucceeds(publicDb.collection("categories").get());
   await assertSucceeds(publicDb.collection("designs").get());
+  await assertFails(publicDb.collection("categories").doc("cat2").set({
+    id: "cat2",
+    name: "৩ডি সিলিং",
+    slug: "3d-ceiling",
+    imageUrl: "https://example.com/cat2.jpg",
+  }));
+  await assertFails(publicDb.collection("designs").doc("des2").set({
+    id: "des2",
+    name: "নতুন ডিজাইন",
+    category: "৩ডি ওয়ালপেপার",
+    subcategory: "বেডরুম",
+    imageUrl: "https://example.com/des2.jpg",
+  }));
 });
 
-test("Public user (no auth): can read subcategories and app settings", async () => {
+test("Public user (no auth): can read subcategories and app settings but cannot write", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await context.firestore().collection("subcategories").doc("sub_bedroom").set({
       id: "sub_bedroom",
@@ -81,6 +94,17 @@ test("Public user (no auth): can read subcategories and app settings", async () 
   const publicDb = testEnv.unauthenticatedContext().firestore();
   await assertSucceeds(publicDb.collection("subcategories").get());
   await assertSucceeds(publicDb.collection("settings").doc("app").get());
+  await assertFails(publicDb.collection("subcategories").doc("sub_office").set({
+    id: "sub_office",
+    name: "অফিস",
+    slug: "office",
+  }));
+  await assertFails(publicDb.collection("settings").doc("app").set({
+    phoneNumber: "+8801976600300",
+    whatsappNumber: "8801976600300",
+    heroTitle: "Public write must be denied",
+    heroImageUrl: "",
+  }));
 });
 
 test("Secrets stay private: settings/integrations is Admin-SDK-only", async () => {
