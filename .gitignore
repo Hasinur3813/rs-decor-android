@@ -19,3 +19,4 @@ debug.keystore
 *-debug.log
 firebase-debug.log
 firestore-debug.log
+/app/google-services.json
