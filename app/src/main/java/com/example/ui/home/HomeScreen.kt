@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +51,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -57,13 +60,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,12 +79,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
@@ -85,6 +96,7 @@ import com.example.data.model.AppSettings
 import com.example.data.model.Design
 import com.example.ui.common.ContactActions
 import com.example.ui.common.DesignCard
+import com.example.ui.common.ShimmerBlock
 import com.example.ui.theme.CallBlue
 import com.example.ui.theme.DarkCardBorder
 import com.example.ui.theme.DarkObsidian
@@ -99,7 +111,7 @@ import com.example.ui.theme.WhatsAppGreen
 import com.example.ui.viewmodel.CatalogViewModel
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: CatalogViewModel,
@@ -110,6 +122,11 @@ fun HomeScreen(
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
+    var searchDialogOpen by remember { mutableStateOf(false) }
+    fun applyFilters(categorySlug: String, subcategorySlug: String) {
+        viewModel.selectFilters(categorySlug, subcategorySlug)
+        coroutineScope.launch { gridState.animateScrollToItem(0) }
+    }
 
     // 1. Rock-solid Infinite Scroll detection using snapshotFlow
     LaunchedEffect(gridState, state.hasMorePages, state.isLoadingMore) {
@@ -144,16 +161,21 @@ fun HomeScreen(
             .fillMaxSize()
             .background(DarkObsidian)
     ) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            state = gridState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 84.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("home_screen_grid")
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { viewModel.syncFirestore() },
+            modifier = Modifier.fillMaxSize()
         ) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                state = gridState,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 84.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("home_screen_grid")
+            ) {
             // Header with the user's official app logo, title & Direct Contact buttons
             item(span = { GridItemSpan(2) }) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -163,7 +185,10 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         // App Logo + Title (admin-managed via settings/app)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
                                 color = PureWhite,
@@ -204,13 +229,17 @@ fun HomeScreen(
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = LuxuryGoldBright,
-                                    letterSpacing = 0.5.sp
+                                    letterSpacing = 0.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = state.appSettings.appSubtitle.ifBlank { AppSettings.DEFAULT_APP_SUBTITLE },
                                     fontSize = 11.sp,
                                     color = TextSecondary,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -449,49 +478,36 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Live Search Input
-                    OutlinedTextField(
-                        value = state.searchQuery,
-                        onValueChange = { viewModel.updateSearchQuery(it) },
-                        placeholder = {
-                            Text(
-                                text = "ডিজাইন খুঁজুন (নাম, ক্যাটাগরি বা রুম)...",
-                                color = TextSecondary,
-                                fontSize = 14.sp
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = LuxuryGold
-                            )
-                        },
-                        trailingIcon = {
-                            if (state.searchQuery.isNotBlank()) {
-                                IconButton(onClick = { viewModel.clearSearch() }) {
+                            // Search opens a focused result browser without changing feed filters.
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = DarkSurface,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { searchDialogOpen = true }
+                                    .testTag("open_search_dialog")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = "Clear",
-                                        tint = TextSecondary
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = null,
+                                        tint = LuxuryGold,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "ডিজাইন খুঁজুন (নাম, ক্যাটাগরি বা রুম)...",
+                                        color = TextSecondary,
+                                        fontSize = 14.sp
                                     )
                                 }
                             }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = DarkSurface,
-                            unfocusedContainerColor = DarkSurface,
-                            focusedBorderColor = LuxuryGold,
-                            unfocusedBorderColor = DarkCardBorder,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("search_text_field")
-                    )
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -512,7 +528,7 @@ fun HomeScreen(
                         FilterPill(
                             title = "সবগুলো",
                             isSelected = state.selectedCategorySlug == "all",
-                            onClick = { viewModel.selectCategory("all") }
+                            onClick = { applyFilters("all", state.selectedSubcategorySlug) }
                         )
                         state.categories.forEach { cat ->
                             val catSlug = if (cat.slug.isNotBlank()) cat.slug else when {
@@ -524,7 +540,7 @@ fun HomeScreen(
                             FilterPill(
                                 title = cat.getDisplayName(),
                                 isSelected = state.selectedCategorySlug == catSlug,
-                                onClick = { viewModel.selectCategory(catSlug) }
+                                onClick = { applyFilters(catSlug, state.selectedSubcategorySlug) }
                             )
                         }
                     }
@@ -557,7 +573,7 @@ fun HomeScreen(
                                 FilterPill(
                                     title = sub.name,
                                     isSelected = state.selectedSubcategorySlug == sub.slug,
-                                    onClick = { viewModel.selectSubcategory(sub.slug) },
+                                    onClick = { applyFilters(state.selectedCategorySlug, sub.slug) },
                                     isSubcategory = true
                                 )
                             }
@@ -573,13 +589,13 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "ডিজাইন তালিকা (${state.filteredDesigns.size} টি ডিজাইন)",
+                            text = "ডিজাইন সমূহ (${if (state.isLoading) "…" else state.totalDesignCount})",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
 
-                        if (state.selectedCategorySlug != "all" || state.selectedSubcategorySlug != "all" || state.searchQuery.isNotBlank()) {
+                        if (state.selectedCategorySlug != "all" || state.selectedSubcategorySlug != "all") {
                             Text(
                                 text = "সব ফিল্টার রিসেট",
                                 fontSize = 12.sp,
@@ -587,9 +603,7 @@ fun HomeScreen(
                                 color = LuxuryGold,
                                 modifier = Modifier
                                     .clickable {
-                                        viewModel.selectCategory("all")
-                                        viewModel.selectSubcategory("all")
-                                        viewModel.clearSearch()
+                                       applyFilters("all", "all")
                                     }
                                     .padding(4.dp)
                             )
@@ -601,8 +615,8 @@ fun HomeScreen(
             // Content states: loading → error → empty → designs.
             // Every branch reflects the real cloud state; no sample content.
             if (state.isLoading && state.allDesigns.isEmpty()) {
-                item(span = { GridItemSpan(2) }) {
-                    CatalogLoadingCard()
+                items(4) {
+                    DesignSkeletonCard()
                 }
             } else if (state.filteredDesigns.isEmpty()) {
                 item(span = { GridItemSpan(2) }) {
@@ -717,7 +731,7 @@ fun HomeScreen(
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
                                     Text(
-                                        text = "আরও ডিজাইন দেখুন (+${(state.filteredDesigns.size - state.pagedDesigns.size).coerceAtMost(state.pageSize)} টি)",
+                                        text = "আরও ডিজাইন দেখুন",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -727,6 +741,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
 
         // Tap to Top Floating Button
@@ -757,6 +772,270 @@ fun HomeScreen(
                     contentDescription = "উপরে যান",
                     modifier = Modifier.size(30.dp)
                 )
+            }
+        }
+
+        if (searchDialogOpen) {
+            SearchDesignDialog(
+                recentDesigns = state.pagedDesigns,
+                searchResults = state.searchResults,
+                isSearching = state.isSearching,
+                searchError = state.searchError,
+                onSearchQueryChange = { viewModel.searchDesigns(it) },
+                onDismiss = {
+                    searchDialogOpen = false
+                    viewModel.clearSearch()
+                },
+                onDesignClick = { design ->
+                    searchDialogOpen = false
+                    viewModel.clearSearch()
+                    onDesignClick(design)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DesignSkeletonCard() {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("design_skeleton_card")
+    ) {
+        Column {
+            ShimmerBlock(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ShimmerBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.82f)
+                        .height(14.dp),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                ShimmerBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.52f)
+                        .height(11.dp),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchDesignDialog(
+    recentDesigns: List<Design>,
+    searchResults: List<Design>,
+    isSearching: Boolean,
+    searchError: String?,
+    onSearchQueryChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onDesignClick: (Design) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val matches = if (query.isBlank()) recentDesigns.take(24) else searchResults
+    val configuration = LocalConfiguration.current
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = DarkObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+            modifier = Modifier
+                .fillMaxWidth(0.96f)
+                .heightIn(max = (configuration.screenHeightDp - 32).dp)
+                .testTag("design_search_dialog")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, bottom = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ডিজাইন খুঁজুন",
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "নাম, ক্যাটাগরি বা রুম দিয়ে সার্চ করুন",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "বন্ধ করুন",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        onSearchQueryChange(it)
+                    },
+                    placeholder = {
+                        Text("যেমন: বেডরুম, ওয়ালপেপার...", color = TextSecondary)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = LuxuryGold)
+                    },
+                    trailingIcon = {
+                        if (query.isNotBlank()) {
+                            IconButton(onClick = {
+                                query = ""
+                                onSearchQueryChange("")
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = "মুছুন", tint = TextSecondary)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = DarkSurface,
+                        unfocusedContainerColor = DarkSurface,
+                        focusedBorderColor = LuxuryGold,
+                        unfocusedBorderColor = DarkCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .testTag("design_search_field")
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (query.isBlank()) "সাম্প্রতিক ডিজাইন" else "সার্চের ফলাফল",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = LuxuryGoldBright
+                    )
+                    Text(
+                        text = if (query.isBlank()) {
+                            "সর্বশেষ ${matches.size}টি"
+                        } else {
+                            "${matches.size}${if (matches.size >= 40) "+" else ""}টি ডিজাইন"
+                        },
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
+
+                if (isSearching) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = LuxuryGold, modifier = Modifier.size(30.dp))
+                    }
+                } else if (searchError != null) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(searchError, color = TextSecondary, textAlign = TextAlign.Center)
+                        TextButton(onClick = { onSearchQueryChange(query) }) {
+                            Text("আবার চেষ্টা করুন", color = LuxuryGoldBright)
+                        }
+                    }
+                } else if (matches.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SearchOff,
+                            contentDescription = null,
+                            tint = LuxuryGold,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text(
+                            text = when {
+                                query.isBlank() -> "এখনো কোনো ডিজাইন নেই"
+                                query.trim().length < 2 -> "কমপক্ষে ২টি অক্ষর লিখুন"
+                                else -> "মিলযুক্ত ডিজাইন পাওয়া যায়নি"
+                            },
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                        if (query.isNotBlank()) {
+                            TextButton(onClick = {
+                                query = ""
+                                onSearchQueryChange("")
+                            }) {
+                                Text("সার্চ মুছুন", color = LuxuryGoldBright)
+                            }
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .testTag("design_search_results")
+                    ) {
+                        items(matches, key = { it.id }) { design ->
+                            DesignCard(
+                                design = design,
+                                onDesignClick = onDesignClick
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -20,3 +20,22 @@ View your app in AI Studio: https://ai.studio/apps/bfa1a17b-c75d-4c57-96f9-eb6e4
 5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
 6. Run the app on an emulator or physical device
 7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+
+## Large catalog setup
+
+The app loads designs in 24-item Firestore cursor pages instead of downloading
+the full collection. After deploying the admin panel changes, the existing
+catalog is automatically backfilled in resumable batches when an admin opens
+the **Designs** page. New and edited designs maintain their own search tokens
+automatically; no per-upload indexing action is needed.
+
+Deploy the composite indexes before releasing the paged app. The admin project
+also includes the index configuration, so you can deploy from either project:
+
+```shell
+firebase deploy --only firestore:indexes --project YOUR_FIREBASE_PROJECT_ID
+```
+
+Wait until the indexes finish building in Firebase Console. Mobile search
+matches indexed title, category, and room word prefixes; it does not read the
+entire designs collection on each search.

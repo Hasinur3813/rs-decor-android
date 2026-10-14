@@ -10,5 +10,6 @@ data class Design(
     val categorySlug: String = "",
     val subcategory: String = "",
     val subcategorySlug: String = "",
-    val imageUrl: String = ""
+    val imageUrl: String = "",
+    val createdAtMillis: Long = 0L
 )

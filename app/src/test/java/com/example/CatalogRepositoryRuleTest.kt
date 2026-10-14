@@ -5,12 +5,42 @@ import com.example.data.repository.CatalogRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CatalogRepositoryRuleTest : FirestoreEmulatorTestBase() {
+
+    @Test
+    fun searchFindsOlderMatchBeyondFirstCandidatePage() = runBlocking {
+        val repository = CatalogRepository(firestore)
+        val batch = firestore.batch()
+        for (index in 0..40) {
+            val isOlderMatch = index == 0
+            val createdAt = "2026-10-14T00:00:%02d.000Z".format(Locale.ROOT, index)
+            val tokens = if (isOlderMatch) {
+                listOf("wallpaper", "bedroom")
+            } else {
+                listOf("wallpaper")
+            }
+            batch.set(
+                firestore.collection("designs").document("search_candidate_%02d".format(Locale.ROOT, index)),
+                mapOf(
+                    "name" to "Wallpaper design $index",
+                    "imageUrl" to "https://example.com/$index.jpg",
+                    "createdAt" to createdAt,
+                    "searchTokens" to tokens
+                )
+            )
+        }
+        batch.commit().await()
+
+        val results = repository.searchDesigns(listOf("wallpaper", "bedroom"))
+
+        assertEquals(listOf("search_candidate_00"), results.map { it.id })
+    }
 
     @Test
     fun publicShowcase_canWriteAndObserveRealCatalogWithoutAuth() = runBlocking {
@@ -36,7 +66,8 @@ class CatalogRepositoryRuleTest : FirestoreEmulatorTestBase() {
                 "categorySlug" to "3d-wallpaper",
                 "subcategory" to "বেডরুম",
                 "subcategorySlug" to "bedroom",
-                "imageUrl" to "https://example.com/des.jpg"
+                "imageUrl" to "https://example.com/des.jpg",
+                "createdAt" to "2026-10-14T00:00:00.000Z"
             )
         ).await()
 
@@ -45,7 +76,7 @@ class CatalogRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(categories.any { it.id == "cat_real_wallpaper" })
 
         // Observe designs
-        val designs = repository.observeDesigns().first()
+        val designs = repository.loadDesignPage("all", "all", 100).items
         val mine = designs.first { it.id == "des_real_1" }
         assertNotNull(mine.name)
         assertNotNull(mine.category)
@@ -100,13 +131,17 @@ class CatalogRepositoryRuleTest : FirestoreEmulatorTestBase() {
                 "heroTitle" to "Custom admin title",
                 "heroSubtitle" to "Custom subtitle",
                 "heroDescription" to "Custom description",
-                "heroImageUrl" to "https://example.com/hero.jpg"
+                "heroImageUrl" to "https://example.com/hero.jpg",
+                "appTitle" to "Custom app title",
+                "appSubtitle" to "Custom app subtitle"
             )
         ).await()
         repository.seedAppSettings()
         val kept = repository.observeAppSettings().first()
         assertEquals("+8801000000000", kept.phoneNumber)
         assertEquals("Custom admin title", kept.heroTitle)
+        assertEquals("Custom app title", kept.appTitle)
+        assertEquals("Custom app subtitle", kept.appSubtitle)
     }
 
     @Test

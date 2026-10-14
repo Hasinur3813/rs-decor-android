@@ -19,6 +19,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +61,7 @@ fun DesignCard(
         design.categorySlug.contains("epoxy", ignoreCase = true) -> com.example.R.drawable.cat_3d_epoxy
         else -> com.example.R.drawable.hero_banner_interior
     }
+    var isImageLoading by remember(design.imageUrl) { mutableStateOf(true) }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -78,15 +83,24 @@ fun DesignCard(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(design.imageUrl)
+                        .data(designThumbnailUrl(design.imageUrl))
                         .crossfade(true)
-                        .placeholder(fallbackResId)
                         .error(fallbackResId)
                         .build(),
                     contentDescription = design.name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onLoading = { isImageLoading = true },
+                    onSuccess = { isImageLoading = false },
+                    onError = { isImageLoading = false }
                 )
+
+                if (isImageLoading) {
+                    ShimmerBlock(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    )
+                }
 
                 // Bottom shadow gradient for readability
                 Box(
@@ -121,6 +135,7 @@ fun DesignCard(
                     )
                 }
             }
+
 
             // Design details: ONLY Name and Category as required
             Column(

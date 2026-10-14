@@ -6,9 +6,12 @@ import com.example.data.dummy.DummyCatalogData
 import com.example.data.model.AppSettings
 import com.example.data.model.Category
 import com.example.data.model.Design
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.example.data.repository.CatalogRepository
 import com.example.util.NetworkMonitor
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,14 +25,19 @@ data class CatalogUiState(
     val allDesigns: List<Design> = emptyList(),
     val filteredDesigns: List<Design> = emptyList(),
     val pagedDesigns: List<Design> = emptyList(),
+    val searchResults: List<Design> = emptyList(),
+    val totalDesignCount: Long = 0,
     val selectedCategorySlug: String = "all", // "all", or an admin category slug
     val selectedSubcategorySlug: String = "all", // "all", or an admin room slug
     val searchQuery: String = "",
+    val isSearching: Boolean = false,
+    val searchError: String? = null,
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val hasMorePages: Boolean = false,
     val currentPage: Int = 1,
-    val pageSize: Int = 10,
+    val pageSize: Int = 24,
     /** Non-null when the designs stream failed (and no cached designs exist). */
     val designsError: String? = null,
     /** Non-null when the categories stream failed (and no cached categories exist). */
@@ -54,6 +62,11 @@ class CatalogViewModel(
     // without stacking duplicate collectors.
     private var categoriesJob: Job? = null
     private var designsJob: Job? = null
+    private var searchJob: Job? = null
+    private var subcategoriesJob: Job? = null
+    private var appSettingsJob: Job? = null
+    private var pageCursor: DocumentSnapshot? = null
+    private var pageRequestId = 0L
 
     init {
         observeNetwork()
@@ -75,9 +88,7 @@ class CatalogViewModel(
                             toastMessage = "✅ ইন্টারনেট সংযোগ পুনঃস্থাপিত হয়েছে!"
                         )
                     }
-                    // Auto-refresh on reconnection: re-check defaults, then
-                    // resubscribe the content streams (failed collectors restart).
-                    viewModelScope.launch { repository.ensureRemoteDefaults() }
+                    // Reconnect the failed observers and reload only the first design page.
                     retryLoading()
 
                     // Auto-hide the "Restored" banner after 3.5 seconds
@@ -120,7 +131,6 @@ class CatalogViewModel(
                         toastMessage = "✅ ইন্টারনেট সচল! ক্যাটালগ রিফ্রেশ হচ্ছে..."
                     )
                 }
-                viewModelScope.launch { repository.ensureRemoteDefaults() }
                 retryLoading()
 
                 kotlinx.coroutines.delay(3000)
@@ -152,18 +162,18 @@ class CatalogViewModel(
         }
 
         startContentObservers()
+        loadFirstPage()
     }
 
     /**
-     * (Re)subscribes the categories + designs streams. Previous collectors
-     * are cancelled first so retry never stacks duplicates. Room and settings
-     * streams are long-lived with built-in fallbacks and are left running.
+     * Re-subscribes catalog metadata streams and loads only the first design
+     * page. Long-lived room/settings collectors are kept instead of duplicated.
      */
     fun retryLoading() {
         categoriesJob?.cancel()
-        designsJob?.cancel()
         _uiState.update { it.copy(designsError = null, categoriesError = null) }
         startContentObservers()
+        loadFirstPage()
     }
 
     private fun startContentObservers() {
@@ -200,175 +210,236 @@ class CatalogViewModel(
             }
         }
 
-        // Observe Designs
-        designsJob = viewModelScope.launch {
-            _uiState.update { if (it.allDesigns.isEmpty()) it.copy(isLoading = true) else it }
-            try {
-                repository.observeDesigns().collect { designs ->
-                    _uiState.update { current ->
-                        val newState = current.copy(
-                            allDesigns = designs,
-                            isLoading = false,
-                            designsError = null
-                        )
-                        applyFiltersAndPaging(newState, resetPage = true)
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                android.util.Log.w("CatalogViewModel", "Designs stream failed", e)
-                _uiState.update {
-                    if (it.allDesigns.isNotEmpty()) {
-                        // Cached designs stay visible; just notify.
-                        it.copy(
-                            isLoading = false,
-                            toastMessage = "⚠️ রিফ্রেশ ব্যর্থ হয়েছে — পুরনো ডিজাইন দেখানো হচ্ছে।"
-                        )
-                    } else {
-                        it.copy(
-                            isLoading = false,
-                            designsError = "ডিজাইন লোড করা যায়নি। ইন্টারনেট চেক করে আবার চেষ্টা করুন।"
-                        )
-                    }
-                }
-            }
-        }
-
         // Observe Room Subcategories (admin-managed, bundled fallback)
-        viewModelScope.launch {
-            repository.observeSubcategories().collect { subcategories ->
-                val resolved = subcategories.ifEmpty { DummyCatalogData.subcategories }
-                _uiState.update { it.copy(subcategories = resolved) }
+        if (subcategoriesJob?.isActive != true) {
+            subcategoriesJob = viewModelScope.launch {
+                repository.observeSubcategories().collect { subcategories ->
+                    val resolved = subcategories.ifEmpty { DummyCatalogData.subcategories }
+                    _uiState.update { it.copy(subcategories = resolved) }
+                }
             }
         }
 
         // Observe Contact + Hero settings (admin-managed, safe defaults)
-        viewModelScope.launch {
-            repository.observeAppSettings().collect { settings ->
-                _uiState.update { it.copy(appSettings = settings) }
+        if (appSettingsJob?.isActive != true) {
+            appSettingsJob = viewModelScope.launch {
+                repository.observeAppSettings().collect { settings ->
+                    _uiState.update { it.copy(appSettings = settings) }
+                }
             }
         }
     }
 
     fun selectCategory(slug: String) {
-        _uiState.update { current ->
-            val newState = current.copy(selectedCategorySlug = slug)
-            applyFiltersAndPaging(newState, resetPage = true)
-        }
+        selectFilters(categorySlug = slug)
     }
 
     fun selectSubcategory(slug: String) {
-        _uiState.update { current ->
-            val newState = current.copy(selectedSubcategorySlug = slug)
-            applyFiltersAndPaging(newState, resetPage = true)
-        }
+        selectFilters(subcategorySlug = slug)
     }
 
-    fun updateSearchQuery(query: String) {
-        _uiState.update { current ->
-            val newState = current.copy(searchQuery = query)
-            applyFiltersAndPaging(newState, resetPage = true)
+    fun selectFilters(
+        categorySlug: String = _uiState.value.selectedCategorySlug,
+        subcategorySlug: String = _uiState.value.selectedSubcategorySlug
+    ) {
+        val state = _uiState.value
+        if (state.selectedCategorySlug == categorySlug &&
+            state.selectedSubcategorySlug == subcategorySlug
+        ) return
+        _uiState.update {
+            it.copy(
+                selectedCategorySlug = categorySlug,
+                selectedSubcategorySlug = subcategorySlug,
+                allDesigns = emptyList(),
+                filteredDesigns = emptyList(),
+                pagedDesigns = emptyList(),
+                totalDesignCount = 0
+            )
+        }
+        loadFirstPage(clearResults = true)
+    }
+
+    fun searchDesigns(query: String) {
+        searchJob?.cancel()
+        val tokens = CatalogRepository.searchTokens(query)
+        _uiState.update {
+            it.copy(
+                searchQuery = query,
+                searchResults = emptyList(),
+                searchError = null,
+                isSearching = tokens.isNotEmpty()
+            )
+        }
+        if (tokens.isEmpty()) return
+        searchJob = viewModelScope.launch {
+            delay(300)
+            try {
+                val results = repository.searchDesigns(tokens)
+                if (_uiState.value.searchQuery == query) {
+                    _uiState.update {
+                        it.copy(searchResults = results, isSearching = false, searchError = null)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.w("CatalogViewModel", "Design search failed", e)
+                if (_uiState.value.searchQuery == query) {
+                    val message = if (
+                        (e as? FirebaseFirestoreException)?.code ==
+                        FirebaseFirestoreException.Code.FAILED_PRECONDITION
+                    ) {
+                        "সার্চ index তৈরি হয়নি। admin panel থেকে search indexing শেষ করে Firestore indexes deploy করুন। ${e.message.orEmpty()}"
+                    } else {
+                        "সার্চ করা যায়নি: ${e.message ?: "ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।"}"
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isSearching = false,
+                            searchError = message
+                        )
+                    }
+                }
+            }
         }
     }
 
     fun clearSearch() {
-        updateSearchQuery("")
+        searchJob?.cancel()
+        _uiState.update {
+            it.copy(searchQuery = "", searchResults = emptyList(), searchError = null, isSearching = false)
+        }
     }
 
-    /**
-     * Infinite scroll pagination: Loads next batch of items
-     */
+    private fun loadFirstPage(showRefreshing: Boolean = false, clearResults: Boolean = false) {
+        val requestId = ++pageRequestId
+        designsJob?.cancel()
+        pageCursor = null
+        _uiState.update {
+            it.copy(
+                isLoading = clearResults || it.allDesigns.isEmpty(),
+                isLoadingMore = false,
+                isRefreshing = showRefreshing,
+                hasMorePages = false,
+                designsError = null,
+                allDesigns = if (clearResults) emptyList() else it.allDesigns,
+                filteredDesigns = if (clearResults) emptyList() else it.filteredDesigns,
+                pagedDesigns = if (clearResults) emptyList() else it.pagedDesigns,
+                totalDesignCount = if (clearResults) 0 else it.totalDesignCount
+            )
+        }
+        designsJob = viewModelScope.launch {
+            try {
+                val current = _uiState.value
+                val page = repository.loadDesignPage(
+                    categorySlug = current.selectedCategorySlug,
+                    subcategorySlug = current.selectedSubcategorySlug,
+                    pageSize = current.pageSize
+                )
+                if (requestId != pageRequestId) return@launch
+                pageCursor = page.cursor
+                _uiState.update {
+                    it.copy(
+                        allDesigns = page.items,
+                        filteredDesigns = page.items,
+                        pagedDesigns = page.items,
+                        currentPage = 1,
+                        hasMorePages = page.hasMore,
+                        totalDesignCount = page.totalCount ?: 0L,
+                        isLoading = false,
+                        isRefreshing = false,
+                        designsError = null
+                    )
+                }
+                if (showRefreshing) {
+                    val settings = repository.refreshAppSettingsFromServer()
+                    _uiState.update {
+                        it.copy(appSettings = settings, toastMessage = "✅ ক্যাটালগ রিফ্রেশ হয়েছে!")
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (requestId != pageRequestId) return@launch
+                android.util.Log.w("CatalogViewModel", "Design page load failed", e)
+                val message = catalogLoadError(e)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        designsError = message,
+                        toastMessage = message
+                    )
+                }
+            }
+        }
+    }
+
+    private fun catalogLoadError(error: Exception): String {
+        val firestoreError = error as? FirebaseFirestoreException
+        return if (firestoreError?.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+            "ডিজাইন ফিল্টারের Firestore index তৈরি হয়নি। rs-decor-admin-web থেকে firebase deploy --only firestore:indexes চালান। ${error.message.orEmpty()}"
+        } else {
+            "ডিজাইন লোড করা যায়নি: ${error.message ?: "নেটওয়ার্ক বা Firestore সেটিংস পরীক্ষা করুন।"}"
+        }
+    }
+
     fun loadNextPage() {
         val current = _uiState.value
+        val cursor = pageCursor ?: return
         if (current.isLoadingMore || !current.hasMorePages) return
+        val requestId = pageRequestId
 
-        viewModelScope.launch {
+        designsJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true) }
-            val nextPage = current.currentPage + 1
-            val nextCount = nextPage * current.pageSize
-            val newPagedList = current.filteredDesigns.take(nextCount)
-            val hasMore = newPagedList.size < current.filteredDesigns.size
-
-            _uiState.update {
-                it.copy(
-                    currentPage = nextPage,
-                    pagedDesigns = newPagedList,
-                    hasMorePages = hasMore,
-                    isLoadingMore = false
+            try {
+                val page = repository.loadDesignPage(
+                    categorySlug = current.selectedCategorySlug,
+                    subcategorySlug = current.selectedSubcategorySlug,
+                    pageSize = current.pageSize,
+                    cursor = cursor,
+                    includeTotalCount = false
                 )
+                if (requestId != pageRequestId) return@launch
+                pageCursor = page.cursor ?: cursor
+                _uiState.update { state ->
+                    val combined = (state.pagedDesigns + page.items).distinctBy { it.id }
+                    state.copy(
+                        allDesigns = combined,
+                        filteredDesigns = combined,
+                        pagedDesigns = combined,
+                        currentPage = state.currentPage + 1,
+                        hasMorePages = page.hasMore,
+                        totalDesignCount = page.totalCount ?: state.totalDesignCount,
+                        isLoadingMore = false
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (requestId != pageRequestId) return@launch
+                android.util.Log.w("CatalogViewModel", "Next design page load failed", e)
+                _uiState.update {
+                    it.copy(
+                        isLoadingMore = false,
+                        toastMessage = "পরবর্তী ডিজাইনগুলো লোড করা যায়নি। আবার চেষ্টা করুন।"
+                    )
+                }
             }
         }
     }
 
     /**
-     * Manual refresh: re-checks remote defaults and resubscribes the content
-     * streams. Streams are real-time, so this is a lightweight refresh —
-     * it never fabricates or duplicates content.
+     * Manual refresh fetches only the current first page and app settings.
      */
     fun syncFirestore() {
         if (!_uiState.value.isOnline) {
             _uiState.update { it.copy(toastMessage = "❌ ইন্টারনেট সংযোগ ছাড়া রিফ্রেশ করা সম্ভব নয়।") }
             return
         }
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(toastMessage = "ক্যাটালগ রিফ্রেশ হচ্ছে...") }
-            val result = repository.ensureRemoteDefaults()
-            result
-                .onSuccess {
-                    retryLoading()
-                    _uiState.update { it.copy(toastMessage = "✅ ক্যাটালগ রিফ্রেশ হয়েছে!") }
-                }
-                .onFailure { e ->
-                    android.util.Log.w("CatalogViewModel", "Manual refresh failed", e)
-                    retryLoading()
-                    _uiState.update {
-                        it.copy(toastMessage = "❌ রিফ্রেশ ব্যর্থ হয়েছে — আবার চেষ্টা করুন।")
-                    }
-                }
-        }
+        if (_uiState.value.isRefreshing) return
+        loadFirstPage(showRefreshing = true)
     }
 
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
     }
 
-    private fun applyFiltersAndPaging(state: CatalogUiState, resetPage: Boolean): CatalogUiState {
-        val filtered = state.allDesigns.filter { design ->
-            // Category filter
-            val matchesCategory = (state.selectedCategorySlug == "all" ||
-                    design.categorySlug.equals(state.selectedCategorySlug, ignoreCase = true))
-
-            // Subcategory filter
-            val matchesSubcategory = (state.selectedSubcategorySlug == "all" ||
-                    design.subcategorySlug.equals(state.selectedSubcategorySlug, ignoreCase = true))
-
-            // Search filter
-            val query = state.searchQuery.trim().lowercase()
-            val matchesSearch = if (query.isEmpty()) {
-                true
-            } else {
-                design.name.lowercase().contains(query) ||
-                        design.category.lowercase().contains(query) ||
-                        design.subcategory.lowercase().contains(query) ||
-                        design.categorySlug.lowercase().contains(query) ||
-                        design.subcategorySlug.lowercase().contains(query)
-            }
-
-            matchesCategory && matchesSubcategory && matchesSearch
-        }
-
-        val page = if (resetPage) 1 else state.currentPage
-        val takeCount = page * state.pageSize
-        val paged = filtered.take(takeCount)
-        val hasMore = paged.size < filtered.size
-
-        return state.copy(
-            filteredDesigns = filtered,
-            pagedDesigns = paged,
-            currentPage = page,
-            hasMorePages = hasMore,
-            isLoadingMore = false
-        )
-    }
 }
